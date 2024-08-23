@@ -34,7 +34,10 @@ This Django app manages bookings for the Short Term Rental Property Management s
 
 1. Check-out date must be after check-in date
 2. Bookings cannot overlap with existing bookings for the same property
-3. Bookings must adhere to the property's booking rules (minimum stay, no check-in/check-out days, etc.)
+3. Bookings must adhere to the property's booking rules:
+   - No check-ins on restricted days
+   - No check-outs on restricted days
+   - Minimum stay requirement (either default or date-specific)
 4. Gap stays are allowed if the property permits them
 
 ## Price Calculation
@@ -83,3 +86,4 @@ Ensure that properties and their rules are correctly set up in the Property app 
 - Add email notifications for booking status changes
 - Integrate with a payment system
 - Implement a calendar view to visualize available dates and pricing
+- Develop a more sophisticated gap stay handling system

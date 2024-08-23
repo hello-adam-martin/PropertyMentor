@@ -37,38 +37,34 @@ class PricingRule(models.Model):
         return self.price_modifier / Decimal('100')
 
 class BookingRule(models.Model):
-    RULE_TYPES = [
-        ('no_checkin', 'No Check-in'),
-        ('no_checkout', 'No Check-out'),
-        ('min_stay', 'Minimum Stay'),
-        ('min_stay_period', 'Minimum Stay for Period'),
-    ]
-
     property = models.ForeignKey('Property', on_delete=models.CASCADE, related_name='booking_rules')
-    rule_type = models.CharField(max_length=20, choices=RULE_TYPES)
-    start_date = models.DateField(null=True, blank=True)
-    end_date = models.DateField(null=True, blank=True)
-    days_of_week = models.CharField(max_length=7, blank=True, help_text="Comma-separated list of day numbers (0=Monday, 6=Sunday)")
-    min_nights = models.PositiveIntegerField(null=True, blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    min_nights = models.PositiveIntegerField()
 
     def clean(self):
-        if self.rule_type in ['no_checkin', 'no_checkout'] and not self.days_of_week:
-            raise ValidationError("Days of week must be specified for no check-in/check-out rules.")
-        if self.rule_type in ['min_stay', 'min_stay_period'] and self.min_nights is None:
-            raise ValidationError("Minimum nights must be specified for minimum stay rules.")
-        if self.rule_type == 'min_stay_period' and (not self.start_date or not self.end_date):
-            raise ValidationError("Start and end dates must be specified for minimum stay period rules.")
-        if self.start_date and self.end_date and self.start_date > self.end_date:
+        if self.start_date >= self.end_date:
             raise ValidationError("End date must be after start date.")
+        if self.min_nights <= 0:
+            raise ValidationError("Minimum nights must be a positive number.")
 
     def __str__(self):
-        return f"{self.get_rule_type_display()} rule for {self.property}"
+        return f"Minimum stay of {self.min_nights} nights for {self.property} from {self.start_date} to {self.end_date}"
 
     class Meta:
-        ordering = ['property', 'rule_type', 'start_date']
+        ordering = ['property', 'start_date']
 
 class Property(models.Model):
     WEEKEND_DAYS = [4, 5]  # Friday and Saturday
+    DAYS_OF_WEEK = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
 
     name = models.CharField(max_length=100)
     address = models.TextField()
@@ -81,6 +77,9 @@ class Property(models.Model):
     date_added = models.DateField(auto_now_add=True)
 
     allow_gap_stays = models.BooleanField(default=True, help_text="Allow bookings shorter than the minimum stay to fill gaps between bookings")
+    no_checkin_days = models.CharField(max_length=7, blank=True, help_text="Days when check-in is not allowed")
+    no_checkout_days = models.CharField(max_length=7, blank=True, help_text="Days when check-out is not allowed")
+    minimum_stay = models.PositiveIntegerField(default=1, help_text="Minimum number of nights required for a booking")
 
     def __str__(self):
         return self.name
@@ -107,27 +106,21 @@ class Property(models.Model):
     def check_booking_rules(self, check_in_date, check_out_date):
         nights = (check_out_date - check_in_date).days
         
-        booking_rules = self.booking_rules.all()
-
         # Check no check-in and no check-out rules
-        for rule in booking_rules:
-            if rule.rule_type == 'no_checkin' and str(check_in_date.weekday()) in rule.days_of_week.split(','):
-                raise ValidationError(f"Check-in is not allowed on {check_in_date.strftime('%A')}s for this property.")
-            
-            if rule.rule_type == 'no_checkout' and str(check_out_date.weekday()) in rule.days_of_week.split(','):
-                raise ValidationError(f"Check-out is not allowed on {check_out_date.strftime('%A')}s for this property.")
+        if str(check_in_date.weekday()) in self.no_checkin_days:
+            raise ValidationError(f"Check-in is not allowed on {check_in_date.strftime('%A')}s for this property.")
+        
+        if str(check_out_date.weekday()) in self.no_checkout_days:
+            raise ValidationError(f"Check-out is not allowed on {check_out_date.strftime('%A')}s for this property.")
 
-        # Get the applicable minimum stay rule
-        min_stay_rule = None
-        for rule in booking_rules:
-            if rule.rule_type == 'min_stay':
-                min_stay_rule = rule
-            elif rule.rule_type == 'min_stay_period' and rule.start_date <= check_in_date <= rule.end_date:
-                min_stay_rule = rule
-                break  # Period-specific rule takes precedence
+        # Check minimum stay rules
+        min_stay = self.minimum_stay
+        for rule in self.booking_rules.all():
+            if rule.start_date <= check_in_date <= rule.end_date:
+                min_stay = max(min_stay, rule.min_nights)
+                break
 
-        # Check minimum stay and gap stays
-        if min_stay_rule and nights < min_stay_rule.min_nights:
+        if nights < min_stay:
             if self.allow_gap_stays:
                 prev_booking = self.bookings.filter(check_out_date__lte=check_in_date).order_by('-check_out_date').first()
                 next_booking = self.bookings.filter(check_in_date__gte=check_out_date).order_by('check_in_date').first()
@@ -139,7 +132,7 @@ class Property(models.Model):
                         return
             
             # If we get here, it's not a valid booking
-            raise ValidationError(f"Booking does not meet minimum stay requirement of {min_stay_rule.min_nights} nights and is not a valid gap stay.")
+            raise ValidationError(f"Booking does not meet minimum stay requirement of {min_stay} nights and is not a valid gap stay.")
 
     class Meta:
         verbose_name_plural = "Properties"
