@@ -1,6 +1,5 @@
 from django.db import models
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 from properties.models import Property
 from guests.models import Guest
 from datetime import timedelta
@@ -25,8 +24,12 @@ class Booking(models.Model):
 
     def calculate_total_price(self):
         if self.check_in_date and self.check_out_date:
-            nights = (self.check_out_date - self.check_in_date).days
-            return self.property.nightly_rate * nights
+            total_price = 0
+            current_date = self.check_in_date
+            while current_date < self.check_out_date:
+                total_price += self.property.get_price_for_date(current_date)
+                current_date += timedelta(days=1)
+            return total_price
         return 0
 
     def clean(self):
