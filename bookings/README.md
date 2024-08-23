@@ -7,6 +7,7 @@ This Django app manages bookings for the Short Term Rental Property Management s
 - Create, read, update, and delete bookings
 - Automatic price calculation based on property pricing rules
 - Booking validation to prevent conflicts and ensure logical date ranges
+- Support for gap stays (shorter stays that fill gaps between existing bookings)
 - Admin interface for managing bookings
 
 ## Models
@@ -22,23 +23,28 @@ This Django app manages bookings for the Short Term Rental Property Management s
 - `booking_date`: Date when the booking was created
 - `special_requests`: Text field for any special requests
 
+## Key Methods
+
+- `calculate_price_breakdown()`: Calculates the price for each night of the stay
+- `get_price_and_rule_for_date()`: Determines the price for a specific date based on pricing rules
+- `calculate_total_price()`: Computes the total price for the entire stay
+- `clean()`: Performs validation checks including overlapping bookings and adherence to booking rules
+
 ## Validation Rules
 
 1. Check-out date must be after check-in date
-2. Check-out date cannot be the same as check-in date
-3. Bookings cannot overlap with existing bookings for the same property
-4. A booking can start on the same day as another booking checks out
+2. Bookings cannot overlap with existing bookings for the same property
+3. Bookings must adhere to the property's booking rules (minimum stay, no check-in/check-out days, etc.)
+4. Gap stays are allowed if the property permits them
 
 ## Price Calculation
 
-The total price is automatically calculated based on the property's pricing rules. These rules are defined in the Property model and can include:
+The total price is automatically calculated based on the property's pricing rules, which can include:
 
 - Base nightly rate
-- Weekend pricing (applied to Fridays and Saturdays)
+- Weekend pricing
 - Seasonal pricing
-- Holiday pricing
-
-The Booking model calculates the total price by applying these rules for each night of the stay, using the `get_price_for_date()` method from the Property model.
+- Override pricing for specific dates
 
 ## Admin Interface
 
@@ -48,7 +54,7 @@ The admin interface provides a customized view for managing bookings:
 - Filters for status and dates
 - Search functionality
 - Read-only total price field
-- Custom titles for list, add, and edit views
+- Price breakdown display
 
 ## Usage
 
@@ -60,16 +66,16 @@ To create a new booking:
 4. Fill in the required information
 5. Save the booking
 
-The system will automatically validate the booking and calculate the total price based on the property's pricing rules.
+The system will automatically validate the booking, apply relevant pricing rules, and calculate the total price.
 
 ## Interaction with Property App
 
 The Booking app relies on the Property app for:
 - Property information
 - Pricing rules
-- Price calculation logic
+- Booking rules (minimum stay, no check-in/check-out days, gap stay settings)
 
-Ensure that properties and their pricing rules are correctly set up in the Property app for accurate booking calculations.
+Ensure that properties and their rules are correctly set up in the Property app for accurate booking calculations and validations.
 
 ## Future Enhancements
 
