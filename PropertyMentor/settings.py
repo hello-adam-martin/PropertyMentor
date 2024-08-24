@@ -42,7 +42,9 @@ INSTALLED_APPS = [
     'guests',
     'bookings',
     'rest_framework',
-    'api'
+    'api',
+    'django_filters',
+    'rest_framework.authtoken'
 
 ]
 
