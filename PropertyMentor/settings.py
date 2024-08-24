@@ -40,7 +40,10 @@ INSTALLED_APPS = [
     'owners',
     'properties',
     'guests',
-    'bookings'
+    'bookings',
+    'rest_framework',
+    'api'
+
 ]
 
 MIDDLEWARE = [
