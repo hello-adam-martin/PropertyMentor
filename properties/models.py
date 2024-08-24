@@ -2,6 +2,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from owners.models import Owner
 from decimal import Decimal
+from django.core.validators import MinValueValidator
 
 class PricingRule(models.Model):
     RULE_TYPES = [
@@ -54,6 +55,42 @@ class BookingRule(models.Model):
     class Meta:
         ordering = ['property', 'start_date']
 
+class Fee(models.Model):
+    FEE_TYPES = [
+        ('percentage', 'Percentage'),
+        ('fixed', 'Fixed Amount'),
+    ]
+    APPLIES_OPTIONS = [
+        ('per_night', 'Every Night'),
+        ('once', 'Once per Stay'),
+    ]
+    DISPLAY_STRATEGIES = [
+        ('separate', 'Show Separately'),
+        ('incorporated', 'Incorporate into Price'),
+    ]
+
+    property = models.ForeignKey('Property', on_delete=models.CASCADE, related_name='fees')
+    name = models.CharField(max_length=100)
+    fee_type = models.CharField(max_length=10, choices=FEE_TYPES)
+    applies = models.CharField(max_length=10, choices=APPLIES_OPTIONS)
+    display_strategy = models.CharField(max_length=12, choices=DISPLAY_STRATEGIES)
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    is_extra_guest_fee = models.BooleanField(default=False)
+    extra_guest_threshold = models.PositiveIntegerField(null=True, blank=True)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.is_extra_guest_fee and self.extra_guest_threshold is None:
+            raise ValidationError("Extra guest threshold must be set for extra guest fees.")
+        if not self.is_extra_guest_fee and self.extra_guest_threshold is not None:
+            raise ValidationError("Extra guest threshold should only be set for extra guest fees.")
+
+    def __str__(self):
+        return f"{self.name} for {self.property}"
+
+    class Meta:
+        unique_together = ('property', 'name')
+
 class Property(models.Model):
     WEEKEND_DAYS = [4, 5]  # Friday and Saturday
     DAYS_OF_WEEK = [
@@ -80,6 +117,10 @@ class Property(models.Model):
     no_checkin_days = models.CharField(max_length=7, blank=True, help_text="Days when check-in is not allowed")
     no_checkout_days = models.CharField(max_length=7, blank=True, help_text="Days when check-out is not allowed")
     minimum_stay = models.PositiveIntegerField(default=1, help_text="Minimum number of nights required for a booking")
+
+    @property
+    def total_fees(self):
+        return self.fees.count()
 
     def __str__(self):
         return self.name

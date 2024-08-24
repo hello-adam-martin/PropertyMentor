@@ -8,6 +8,9 @@ class Booking(models.Model):
     guest = models.ForeignKey('guests.Guest', on_delete=models.CASCADE, related_name='bookings')
     check_in_date = models.DateField()
     check_out_date = models.DateField()
+    num_guests = models.PositiveIntegerField()
+    base_total = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
+    fees_total = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
     total_price = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
     status = models.CharField(max_length=20, choices=[
         ('pending', 'Pending'),
@@ -55,8 +58,47 @@ class Booking(models.Model):
         return self.round_price(base_price), "Base rate"
 
     def calculate_total_price(self):
-        total = sum(Decimal(day['price']) for day in self.calculate_price_breakdown())
-        return self.round_price(total)
+        base_total = sum(Decimal(day['price']) for day in self.calculate_price_breakdown())
+        fees_total = self.calculate_fees()
+        return self.round_price(base_total + fees_total)
+
+    def calculate_fees(self):
+        total_fees = Decimal('0.00')
+        nights = (self.check_out_date - self.check_in_date).days
+        base_total = sum(Decimal(day['price']) for day in self.calculate_price_breakdown())
+
+        for fee in self.property.fees.all():
+            fee_amount = self.calculate_fee_amount(fee)
+            total_fees += fee_amount
+
+        return self.round_price(total_fees)
+
+    def calculate_fee_amount(self, fee):
+        nights = (self.check_out_date - self.check_in_date).days
+        base_total = sum(Decimal(day['price']) for day in self.calculate_price_breakdown())
+
+        if fee.fee_type == 'percentage':
+            fee_amount = base_total * (fee.amount / Decimal('100'))
+        else:  # fixed amount
+            fee_amount = fee.amount
+
+        if fee.applies == 'per_night':
+            fee_amount *= nights
+        
+        if fee.is_extra_guest_fee and self.num_guests > fee.extra_guest_threshold:
+            extra_guests = self.num_guests - fee.extra_guest_threshold
+            fee_amount *= extra_guests
+
+        return self.round_price(fee_amount)
+
+    def get_incorporated_fees_per_night(self):
+        nights = (self.check_out_date - self.check_in_date).days
+        incorporated_fees_total = sum(
+            self.calculate_fee_amount(fee)
+            for fee in self.property.fees.all()
+            if fee.display_strategy == 'incorporated'
+        )
+        return self.round_price(incorporated_fees_total / nights) if nights > 0 else Decimal('0.00')
 
     @staticmethod
     def round_price(price):
@@ -69,6 +111,8 @@ class Booking(models.Model):
             raise ValidationError("Check-out date is required.")
         if not self.property:
             raise ValidationError("Property is required.")
+        if not self.num_guests:
+            raise ValidationError("Number of guests is required.")
 
         if self.check_out_date <= self.check_in_date:
             raise ValidationError("Check-out date must be after check-in date.")
@@ -90,7 +134,9 @@ class Booking(models.Model):
         except ValidationError as e:
             raise ValidationError(str(e))
 
-        self.total_price = self.calculate_total_price()
+        self.base_total = self.round_price(sum(Decimal(day['price']) for day in self.calculate_price_breakdown()))
+        self.fees_total = self.calculate_fees()
+        self.total_price = self.base_total + self.fees_total
 
     def save(self, *args, **kwargs):
         self.full_clean()
